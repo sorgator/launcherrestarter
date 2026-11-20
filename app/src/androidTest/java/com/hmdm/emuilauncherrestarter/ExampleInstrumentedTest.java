@@ -1,12 +1,12 @@
 package com.hmdm.emuilauncherrestarter;
 
-import android.content.Context;
-import android.support.test.InstrumentationRegistry;
-import android.support.test.runner.AndroidJUnit4;
-
+import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import androidx.test.platform.app.InstrumentationRegistry;
+import androidx.test.ext.junit.runners.AndroidJUnit4;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
 import static org.junit.Assert.*;
 
 /**
@@ -17,10 +17,15 @@ import static org.junit.Assert.*;
 @RunWith(AndroidJUnit4.class)
 public class ExampleInstrumentedTest {
     @Test
-    public void useAppContext() {
-        // Context of the app under test.
-        Context appContext = InstrumentationRegistry.getTargetContext();
-
-        assertEquals("ru.headwind.miuilauncherrestarter", appContext.getPackageName());
+    public void legacyCallerCanResolveExportedEntryPoint() throws Exception {
+        String packageName = InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName();
+        assertEquals("com.hmdm.emuilauncherrestarter", packageName);
+        PackageManager manager = InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageManager();
+        assertNotNull(manager.getLaunchIntentForPackage(packageName));
+        PackageInfo info = manager.getPackageInfo(packageName, PackageManager.GET_ACTIVITIES);
+        ActivityInfo activity = info.activities[0];
+        assertEquals("com.hmdm.emuilauncherrestarter.MainActivity", activity.name);
+        assertTrue(activity.exported);
+        assertEquals(35, info.applicationInfo.targetSdkVersion);
     }
 }

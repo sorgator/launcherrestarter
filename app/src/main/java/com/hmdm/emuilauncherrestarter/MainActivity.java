@@ -1,108 +1,212 @@
 package com.hmdm.emuilauncherrestarter;
 
+import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.v7.app.AppCompatActivity;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
+import android.view.View;
+import android.widget.TextView;
 
-public class MainActivity extends AppCompatActivity {
-
-    private final String LOG_TAG = "LauncherRestarter";
-    private final String LEGACY_LAUNCHER_PACKAGE_ID = "ru.headwind.kiosk";
-    private final String LAUNCHER_PACKAGE_ID = "com.hmdm.launcher";
-    private int restartAttempts = 60;
-    private final String LAUNCHER_OLD_VERSION = "oldVersion";
+/** Visible handoff across launcher replacement, including non-device-owner Android 12. */
+public class MainActivity extends Activity {
+    private static final String LOG_TAG = "SuntelMdmHelper";
+    private static final String[] LAUNCHER_PACKAGES = {"com.hmdm.launcher", "ru.headwind.kiosk"};
+    private static final String OLD_VERSION = "oldVersion";
+    private static final String STARTED_AT = "startedAt";
+    private static final String SELECTED_PACKAGE = "selectedPackage";
+    private final Handler handler = new Handler(Looper.getMainLooper());
     private String oldLauncherVersion;
-    private String packageId;
+    private long startedAt;
+    private String selectedPackage;
+    private boolean resumed;
+    private boolean launching;
+    private TextView status;
+    private View progress;
+    private View retryButton;
+    private View openButton;
 
-    Handler handler = new Handler();
-    Handler guaranteedStartHandler = new Handler();
-
-    Runnable callHome = new Runnable() {
-
-        @Override
-        public void run() {
-            PackageManager packageManager = getPackageManager();
-            packageId = LAUNCHER_PACKAGE_ID;
-            Intent intent = packageManager.getLaunchIntentForPackage(LAUNCHER_PACKAGE_ID);
-            if (intent == null) {
-                packageId = LEGACY_LAUNCHER_PACKAGE_ID;
-                intent = packageManager.getLaunchIntentForPackage(LEGACY_LAUNCHER_PACKAGE_ID);
-            }
-            if (intent == null) {
-                // Not installed yet
-                Log.i(LOG_TAG, "Launcher not yet found, attempts left: " + restartAttempts);
-                retry();
-                return;
-            }
-
-            // Check if it is already updated
-            try {
-                PackageInfo packageInfo = packageManager.getPackageInfo(packageId, 0);
-                if (packageInfo != null && oldLauncherVersion != null && oldLauncherVersion.equals(packageInfo.versionName)) {
-                    // Old version is not even terminated!
-                    Log.i(LOG_TAG, "Old launcher found, version: " + packageInfo.versionName);
-                    retry();
-                    return;
-                }
-            } catch (PackageManager.NameNotFoundException e) {
-                // Race condition? Let's retry
-                Log.i(LOG_TAG, "Launcher not yet found, attempts left: " + restartAttempts);
-                retry();
-                return;
-            }
-
-            intent.setFlags( Intent.FLAG_ACTIVITY_NEW_TASK );
-            guaranteedStart(intent);
-        }
-    };
-
-    private void guaranteedStart(final Intent intent) {
-        Runnable runnable = new Runnable() {
-            @Override
-            public void run() {
-                Log.i(LOG_TAG, "Starting Headwind MDM Launcher!");
-                startActivity(intent);
-            }
-        };
-
-        // Delay and re-send intent after 3, 10 and 30 sec to ensure launcher is running
-        guaranteedStartHandler.postDelayed(runnable, 3000);
-        guaranteedStartHandler.postDelayed(runnable, 10000);
-        guaranteedStartHandler.postDelayed(runnable, 30000);
-    }
-
-    private void retry() {
-        restartAttempts--;
-        if (restartAttempts > 0) {
-            restartHandler();
-        }
-    }
+    private final Runnable check = this::checkLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        oldLauncherVersion = getIntent().getStringExtra(LAUNCHER_OLD_VERSION);
-        finish();
-        restartHandler();
+        setContentView(R.layout.activity_main);
+        View root = findViewById(R.id.helper_root);
+        // Target 35 uses edge-to-edge. Keep controls clear of system bars on every SDK.
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        status = findViewById(R.id.status);
+        progress = findViewById(R.id.progress);
+        retryButton = findViewById(R.id.retry);
+        openButton = findViewById(R.id.open_launcher);
+        retryButton.setOnClickListener(view -> beginWait());
+        openButton.setOnClickListener(view -> openLauncher(findLauncher()));
+        oldLauncherVersion = savedInstanceState == null
+                ? getIntent().getStringExtra(OLD_VERSION) : savedInstanceState.getString(OLD_VERSION);
+        startedAt = savedInstanceState == null ? SystemClock.elapsedRealtime()
+                : savedInstanceState.getLong(STARTED_AT, SystemClock.elapsedRealtime());
+        selectedPackage = savedInstanceState == null ? selectLauncherPackage()
+                : savedInstanceState.getString(SELECTED_PACKAGE);
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        oldLauncherVersion = intent.getStringExtra(LAUNCHER_OLD_VERSION);
-        restartHandler();
+        setIntent(intent);
+        oldLauncherVersion = intent.getStringExtra(OLD_VERSION);
+        selectedPackage = selectLauncherPackage();
+        beginWait();
     }
 
-    private void restartHandler() {
-        if (handler != null) {
-            handler.removeCallbacksAndMessages(null);
+    @Override
+    protected void onResume() {
+        super.onResume();
+        resumed = true;
+        scheduleCheck();
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        handler.removeCallbacks(check);
+        super.onPause();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        handler.removeCallbacks(check);
+        if (hasFocus) {
+            scheduleCheck();
         }
-        Log.i(LOG_TAG, "Posting delayed launcher start within 1000 msec");
-        handler.postDelayed(callHome, 1000);
     }
 
+    @Override
+    protected void onDestroy() {
+        handler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle state) {
+        state.putString(OLD_VERSION, oldLauncherVersion);
+        state.putLong(STARTED_AT, startedAt);
+        state.putString(SELECTED_PACKAGE, selectedPackage);
+        super.onSaveInstanceState(state);
+    }
+
+    private void beginWait() {
+        startedAt = SystemClock.elapsedRealtime();
+        launching = false;
+        progress.setVisibility(View.VISIBLE);
+        retryButton.setVisibility(View.GONE);
+        openButton.setVisibility(View.GONE);
+        status.setText(R.string.waiting_update);
+        scheduleCheck();
+    }
+
+    private void scheduleCheck() {
+        handler.removeCallbacks(check);
+        if (resumed && hasWindowFocus() && !launching) {
+            handler.postDelayed(check, 1000);
+        }
+    }
+
+    private void checkLauncher() {
+        if (!resumed || !hasWindowFocus() || launching || isFinishing()) {
+            return;
+        }
+        Launcher launcher = findLauncher();
+        RestartPolicy.Decision decision = RestartPolicy.decide(launcher != null,
+                oldLauncherVersion, launcher == null ? null : launcher.version,
+                SystemClock.elapsedRealtime() - startedAt);
+        switch (decision) {
+            case READY:
+                openLauncher(launcher);
+                break;
+            case TIMED_OUT:
+                showRecovery(R.string.update_timeout);
+                break;
+            default:
+                status.setText(decision == RestartPolicy.Decision.WAIT_FOR_INSTALL
+                        ? R.string.waiting_install : R.string.waiting_update);
+                scheduleCheck();
+        }
+    }
+
+    private Launcher findLauncher() {
+        return launcherForPackage(selectedPackage);
+    }
+
+    private String selectLauncherPackage() {
+        // A second installed launcher must never look like a completed update of the first.
+        Launcher current = launcherForPackage(LAUNCHER_PACKAGES[0]);
+        Launcher legacy = launcherForPackage(LAUNCHER_PACKAGES[1]);
+        return LauncherSelection.select(current != null, legacy != null,
+                legacy == null ? null : legacy.version, oldLauncherVersion);
+    }
+
+    private Launcher launcherForPackage(String packageName) {
+        if (!LAUNCHER_PACKAGES[0].equals(packageName) && !LAUNCHER_PACKAGES[1].equals(packageName)) {
+            return null;
+        }
+        PackageManager manager = getPackageManager();
+        try {
+            Intent intent = manager.getLaunchIntentForPackage(packageName);
+            if (intent != null) {
+                PackageInfo info = manager.getPackageInfo(packageName, 0);
+                return new Launcher(intent, info.versionName);
+            }
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Package replacement can temporarily remove the launcher from the query result.
+        }
+        return null;
+    }
+
+    private void openLauncher(Launcher launcher) {
+        if (!resumed || !hasWindowFocus() || launching) {
+            return;
+        }
+        if (launcher == null) {
+            showRecovery(R.string.launcher_unavailable);
+            return;
+        }
+        try {
+            launching = true;
+            status.setText(R.string.opening_launcher);
+            launcher.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(launcher.intent);
+            finish();
+        } catch (ActivityNotFoundException | SecurityException failure) {
+            launching = false;
+            Log.w(LOG_TAG, "Launcher handoff unavailable");
+            showRecovery(R.string.launcher_unavailable);
+        }
+    }
+
+    private void showRecovery(int message) {
+        handler.removeCallbacks(check);
+        progress.setVisibility(View.GONE);
+        retryButton.setVisibility(View.VISIBLE);
+        openButton.setVisibility(View.VISIBLE);
+        status.setText(message);
+    }
+
+    private static final class Launcher {
+        final Intent intent;
+        final String version;
+        Launcher(Intent intent, String version) {
+            this.intent = intent;
+            this.version = version;
+        }
+    }
 }

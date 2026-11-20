@@ -1,10 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
-<android.support.constraint.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/helper_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
-
-
-</android.support.constraint.ConstraintLayout>
+    android:fillViewport="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:padding="24dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/app_name" android:textColor="@color/colorPrimary"
+            android:textSize="16sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:text="@string/helper_title"
+            android:textSize="28sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:text="@string/helper_description"
+            android:textSize="18sp" />
+        <ProgressBar android:id="@+id/progress" android:layout_width="48dp"
+            android:layout_height="48dp" android:layout_marginTop="24dp" />
+        <TextView android:id="@+id/status" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp"
+            android:text="@string/waiting_update" android:textSize="18sp"
+            android:accessibilityLiveRegion="polite" />
+        <Button android:id="@+id/retry" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="24dp"
+            android:text="@string/retry" android:visibility="gone" />
+        <Button android:id="@+id/open_launcher" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/open_launcher"
+            android:visibility="gone" />
+    </LinearLayout>
+</ScrollView>

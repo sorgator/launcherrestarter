@@ -1,3 +1,12 @@
 <resources>
-    <string name="app_name">Launcher Restarter</string>
+    <string name="app_name">Suntel MDM Update Helper</string>
+    <string name="helper_title">Updating Suntel MDM</string>
+    <string name="helper_description">Keep this screen open while the launcher is updated. Confirm Android’s installation prompt if it appears.</string>
+    <string name="waiting_install">Waiting for the launcher to become available…</string>
+    <string name="waiting_update">Waiting for the launcher update…</string>
+    <string name="opening_launcher">Opening Suntel MDM…</string>
+    <string name="update_timeout">The update has not completed. You can retry, or open the installed launcher and check the installation result.</string>
+    <string name="launcher_unavailable">The launcher could not be opened. Complete its installation and retry.</string>
+    <string name="retry">Retry</string>
+    <string name="open_launcher">Open launcher</string>
 </resources>
