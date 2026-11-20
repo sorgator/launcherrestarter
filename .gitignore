@@ -9,3 +9,11 @@
 /build
 /captures
 .externalNativeBuild
+/.tooling/
+/app/build/
+/outputs/
+*.jks
+*.keystore
+*.p12
+keystore.properties
+/.signing/
